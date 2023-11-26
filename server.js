@@ -3,6 +3,7 @@ import cors from 'cors'
 import cookieParser from 'cookie-parser'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
+import { upload, processCSVUpload } from './processCSVUpload.js'
 
 const app = express();
 app.use(cors({
@@ -49,7 +50,7 @@ app.post('/login', async (req, res) => {
                 const id = admin.id;
                 const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
                 res.cookie('token', token);
-                return res.json({ Status: 'Success' });
+                return res.json({ Status: 'Success', Role: 'admin' }); // assign admin role
             } else {
                 return res.json({ Status: 'Error', Error: 'Wrong Email or Password' });
             }
@@ -75,7 +76,7 @@ app.post('/customerLogin', async (req, res) => {
           const id = user.id;
           const token = jwt.sign({ role: "admin", id }, "jwt-secret-key", { expiresIn: '1d' });
           res.cookie('token', token);
-          return res.json({ Status: "Success" });
+          return res.json({ Status: "Success", Role: 'user' });
         } else {
           return res.json({ Status: "Error", Error: "Wrong Email or Password" });
         }
@@ -90,7 +91,16 @@ app.post('/customerLogin', async (req, res) => {
 
   app.get('/getCustomer', async (req, res) => {
     try {
-        const result = await con.request().query('SELECT * FROM combined_data');
+        const query = `SELECT ID, name, email, address, state, postal_code, account_last_payment_date, device_payment_plan, credit_card, credit_card_type,
+        STUFF((
+            SELECT ', ' + CAST(ServiceType AS VARCHAR(MAX)) FROM UserServices us
+            INNER JOIN Service s ON us.ServiceID = s.ServiceID WHERE us.UserID = cd.ID
+            FOR XML PATH(''), TYPE).value('.', 'VARCHAR(MAX)'), 1, 1, '') AS ServiceTypes
+    FROM combined_data cd
+    LEFT OUTER JOIN UserServices ON cd.ID = UserServices.UserID
+    Left Outer JOIN Service ON UserServices.ServiceID = Service.ServiceID
+    GROUP BY ID, name, email, address, state, postal_code, account_last_payment_date, device_payment_plan, credit_card, credit_card_type`
+        const result = await con.request().query(query);
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
         console.error('Error fetching customer data from the database:', err);
@@ -99,16 +109,17 @@ app.post('/customerLogin', async (req, res) => {
 });
 
 app.get('/get/:id', async (req, res) => {
-    const id = req.params.ID;
+    const id = req.params.id;
 
     try {
         const result = await con.query`SELECT * FROM combined_data WHERE ID = ${id}`;
+        const services = await con.query`SELECT ServiceType FROM UserServices join Service on UserServices.ServiceID = Service.ServiceID WHERE UserID = ${id}`;
 
         if (result.recordset.length === 0) {
-            return res.json({ Status: 'Data not found', Result: [] });
+            return res.json({ Status: 'Data not found', Result: [], Services: [] });
         }
 
-        return res.json({ Status: 'Success', Result: result.recordset });
+        return res.json({ Status: 'Success', Result: result.recordset, Services: services.recordset });
     } catch (err) {
         console.error('Database error:', err);
         return res.json({ Status: 'Error', Error: 'Get customer error in sql' });
@@ -116,9 +127,20 @@ app.get('/get/:id', async (req, res) => {
 });
 
 app.put('/update/:id', async (req, res) => {
-    const id = req.params.ID;
+    const id = req.params.id;
     const updatedData = req.body;
 
+
+    const services = req.body.Services
+
+    await con.query`DELETE FROM UserServices WHERE UserID = ${id}` // Delete all their services and just re-add them
+    if(services.length > 0) {
+        services.forEach(async (element) => {
+            const serviceID = element === 'Wireless' ? 0 : 1;
+            await con.query`INSERT INTO UserServices (UserID, ServiceID)
+            values(${id}, ${serviceID})`
+        })
+    }
     try {
         // Fetch the current data from the database before the update
         const result = await con.request()
@@ -126,12 +148,12 @@ app.put('/update/:id', async (req, res) => {
             .query('SELECT * FROM combined_data WHERE ID = @id');
 
         const oldData = result.recordset[0];
-
+    
         // Update the data in the database
         await con.request()
-            .input('id', sql.NVarChar(50), ID)
+            .input('id', sql.NVarChar(50), id)
             .input('name', sql.NVarChar(30), updatedData.name)
-            .input('email', sql.NVarChar(30), updatedData.email)
+            .input('email', sql.NVarChar(100), updatedData.email)
             .input('device_payment_plan', sql.NVarChar(30), updatedData.device_payment_plan)
             .input('credit_card', sql.NVarChar(30), updatedData.credit_card)
             .input('credit_card_type', sql.NVarChar(30), updatedData.credit_card_type)
@@ -195,11 +217,14 @@ function getEditHistory(oldData, updatedData, timestamp) {
     const editHistory = [];
 
     for (const key in updatedData) {
+        if (key === 'Services') {
+            continue;
+        }
         if (key !== 'id' && oldData[key] !== updatedData[key]) {
             let formattedNewValue = oldData[key];
 
             // Check if the current key is the one representing the date field
-            if (key === 'AccountLastPayment') {
+            if (key === 'account_last_payment_date') {
                 // Parse the new date value into a Date object  
                 const newDate = new Date(formattedNewValue);
                 // Format the date as 'YYYY-MM-DD'
@@ -207,7 +232,7 @@ function getEditHistory(oldData, updatedData, timestamp) {
             }
 
             editHistory.push({
-                edited_field: key,       // Set edited_field to the field name
+                edited_field: key, // Set edited_field to the field name
                 old_value: formattedNewValue,
                 new_value: updatedData[key], // Set new_value to the new value
                 timestamp: timestamp
@@ -232,7 +257,8 @@ app.get('/editHistory', async (req, res) => {
 app.delete('/delete/:id', async (req, res) => {
     const id = req.params.id;
     try {
-        const result = await con.query`DELETE FROM combined_data WHERE id = ${id}`;
+        await con.query`DELETE FROM UserServices WHERE UserID = ${id}`
+        const result = await con.query`DELETE FROM combined_data WHERE ID = ${id}`;
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running delete query:', err);
@@ -290,7 +316,6 @@ app.get('/logout', (req, res) => {
     return res.json({ Status: "Success" });
 })
 
-
 app.post('/add', async (req, res) => {
     const {
         name,
@@ -301,7 +326,8 @@ app.post('/add', async (req, res) => {
         account_last_payment_date,
         address,
         state,
-        postal_code
+        postal_code,
+        ServiceTypes
     } = req.body;
 
     try {
@@ -317,8 +343,27 @@ app.post('/add', async (req, res) => {
                 address,
                 state,
                 postal_code
-            ) VALUES (NEWID(), ${name}, ${email}, ${device_payment_plan}, ${credit_card}, ${credit_card_type}, ${account_last_payment_date}, ${address}, ${state}, ${postal_code})`;
-        
+            )
+            OUTPUT inserted.ID 
+            VALUES (NEWID(), ${name}, ${email}, ${device_payment_plan}, ${credit_card}, ${credit_card_type}, ${account_last_payment_date}, ${address}, ${state}, ${postal_code})`;
+
+            if(ServiceTypes.length > 0) { // If its empty
+                const serviceQuery = `INSERT INTO UserServices (UserID, ServiceID) values (@UserID, @ServiceID)`
+                ServiceTypes.forEach(async (element) => {
+                    if(element === 'Wireless') {
+                        await con.request()
+                        .input('UserID', result.recordset[0].ID)
+                        .input('ServiceID', 0)
+                        .query(serviceQuery);
+                    }
+                    if(element === 'Fiber') {
+                        await con.request()
+                        .input('UserID', result.recordset[0].ID)
+                        .input('ServiceID', 1)
+                        .query(serviceQuery);
+                    }
+                })
+            }
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running query:', err);
@@ -339,7 +384,7 @@ app.post('/advanceLogin', async(req, res) => {
                 const id = user.id;
                 const token = jwt.sign({role: "admin", id }, "jwt-secret-key", {expiresIn: '1d' });
                 res.cookie('token', token);
-                return res.json({Status: "Success" });
+                return res.json({Status: "Success", Role: 'advanceUser' });
             } else {
                 return res.json({Status: "Error", Error: "Wrong Email or Password" });
             }
@@ -447,11 +492,7 @@ app.post('/createUser', async (req, res) => {
     const password = req.body.password;
     try {
 
-        console.log("email", email);
-        console.log("password ", password);
-
         const hashedPassword = await bcrypt.hash(password, 10);
-        console.log("hashed password");
         const createUserQuery = "INSERT INTO users (email, role, password) VALUES (@email, 'user', @password)";
         const result = await con.request()
         .input('email', sql.VarChar(30), email)
@@ -465,7 +506,9 @@ app.post('/createUser', async (req, res) => {
     }
 });
 
+// COME BACK TO THIS WIP
 app.post('/filteredSearch', async (req, res) => {
+    let buildCondition = '';
     let {
         ID, 
         name,
@@ -476,15 +519,10 @@ app.post('/filteredSearch', async (req, res) => {
         account_last_payment_date,
         address,
         state,
-        postal_code
+        postal_code,
+        ServiceTypes
     } = req.body;
     try {
-        const query = `SELECT * FROM combined_data 
-        WHERE ID like @ID and name like @name and email like @email 
-        and device_payment_plan like @device_payment_plan and credit_card like @credit_card 
-        and credit_card_type like @credit_card_type 
-        and account_last_payment_date >= @account_last_payment_range
-        and address like @address and state like @state and postal_code like @postal_code`;
         ID = '%' + ID + '%'; // Create one for each parameter so that it searches for contains, not exact match.
         name = '%' + name + '%';
         email = '%' + email + '%';
@@ -492,8 +530,36 @@ app.post('/filteredSearch', async (req, res) => {
         credit_card = '%' + credit_card + '%';
         credit_card_type = '%' + credit_card_type + '%';
 
+        // Handle the ServiceTypes. Can contains Wireless, Fiber, or both
+        let Wireless = 0; let Fiber = 0; let Both = 0
+        if(ServiceTypes.length > 0) { // If its empty
+            ServiceTypes.forEach((element) => {
+                if(element === 'Wireless') {
+                    Wireless = 1
+                }
+                if(element === 'Fiber') {
+                    Fiber = 1
+                }
+                if(element === 'Both') {
+                    Both = 1
+                }
+            })
+        }
+
+        // Conditionally build the Query around the Checkboxes
+        if(Both === 1 && Fiber === 0 && Wireless === 0) { // This is the only Both condition
+            buildCondition = `MAX(CASE WHEN ServiceType = 'Fiber' THEN 1 ELSE 0 END) = 1
+            AND MAX(CASE WHEN ServiceType = 'Wireless' THEN 1 ELSE 0 END) = 1`
+        } else if(Both === 1) { // Not only Both, still includes Both
+            buildCondition = `(@Fiber = 1 AND MAX(CASE WHEN ServiceType = 'Fiber' THEN 1 ELSE 0 END) = 1)
+            OR (@Wireless = 1 AND MAX(CASE WHEN ServiceType = 'Wireless' THEN 1 ELSE 0 END) = 1)`
+        } else { // Doesn't include Both
+            buildCondition = `(@Fiber = 1 AND MAX(CASE WHEN ServiceType = 'Fiber' THEN 1 ELSE 0 END) = 1 AND (1 = 1 AND MAX(CASE WHEN ServiceType = 'Wireless' THEN 1 ELSE 0 END) = 0))
+            OR ((@Wireless = 1 AND MAX(CASE WHEN ServiceType = 'Wireless' THEN 1 ELSE 0 END) = 1) AND MAX(CASE WHEN ServiceType = 'Fiber' THEN 1 ELSE 0 END) = 0)`
+        }
+
         // Handle the date to make it a valid type
-        let account_last_payment_date_range = '0001-01-01'; // Sets default value of low date
+        let account_last_payment_date_range = '0001-01-01'; 
         if(account_last_payment_date) { // Checks if it is null or not (if null, set as lowest date)
             account_last_payment_date_range = account_last_payment_date;
         }
@@ -501,6 +567,51 @@ app.post('/filteredSearch', async (req, res) => {
         address = '%' + address + '%';
         state = '%' + state + '%';
         postal_code = '%' + address + '%';
+
+        const query = `SELECT
+        ID,
+        name,
+        email,
+        address,
+        state,
+        postal_code,
+        account_last_payment_date,
+        device_payment_plan,
+        credit_card,
+        credit_card_type,
+        STUFF((
+                SELECT ', ' + CAST(ServiceType AS VARCHAR(MAX))
+                FROM UserServices us
+                INNER JOIN Service s ON us.ServiceID = s.ServiceID WHERE us.UserID = cd.ID
+                FOR XML PATH(''), TYPE
+            ).value('.', 'VARCHAR(MAX)'), 1, 1, '') AS ServiceTypes
+    FROM combined_data cd
+    LEFT OUTER JOIN UserServices ON cd.ID = UserServices.UserID
+    LEFT OUTER JOIN Service ON UserServices.ServiceID = Service.ServiceID
+    WHERE
+        ID LIKE @ID
+        AND name LIKE @name
+        AND email LIKE @email
+        AND device_payment_plan LIKE @device_payment_plan
+        AND credit_card LIKE @credit_card
+        AND credit_card_type LIKE @credit_card_type
+        AND account_last_payment_date >= @account_last_payment_range
+        AND address LIKE @address
+        AND state LIKE @state
+        AND postal_code LIKE @postal_code
+    GROUP BY
+        ID,
+        name,
+        email,
+        address,
+        state,
+        postal_code,
+        account_last_payment_date,
+        device_payment_plan,
+        credit_card,
+        credit_card_type
+        HAVING ${buildCondition}`;
+
         const result = await con.request()
         .input('ID', sql.NVarChar(50), ID)
         .input('name', sql.NVarChar, name)
@@ -512,6 +623,8 @@ app.post('/filteredSearch', async (req, res) => {
         .input('address', sql.NVarChar, address)
         .input('state', sql.NVarChar, state)
         .input('postal_code', sql.NVarChar, postal_code)
+        .input('Fiber', Fiber)
+        .input('Wireless', Wireless)
         .query(query);
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
@@ -519,6 +632,16 @@ app.post('/filteredSearch', async (req, res) => {
         res.status(500).json({ Status: 'Error', Error: 'Error Sorting' });
     }
 })
+
+app.post('/upload-csv', upload.array('files'), (req, res) => {
+    try {
+        console.log('CSV upload request received:', req.files);
+        processCSVUpload(req, res, con);
+    } catch (error) {
+        console.error('Error during CSV upload:', error);
+        res.status(500).send('Internal Server Error');
+    }
+});
 
 app.listen(8081, () => {
     console.log("Running")
