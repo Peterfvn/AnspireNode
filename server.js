@@ -7,7 +7,7 @@ import { upload, processCSVUpload } from './processCSVUpload.js'
 
 const app = express();
 app.use(cors({
-    origin: ["https://anspire.onrender.com"],
+    origin: ["https://anspire.onrender.com", "http://localhost:5173"],
     methods: ["POST", "GET", "PUT", "DELETE"],
     credentials: true,
     optionsSuccessStatus: 204
