@@ -547,10 +547,12 @@ app.post('/createUser', async (req, res) => {
         const con = await connectToDatabase();
         const hashedPassword = await bcrypt.hash(password, 10);
         const createUserQuery = "INSERT INTO users (email, role, password) VALUES (@email, 'user', @password)";
-        const result = await con.request()
+        await con.request()
         .input('email', sql.VarChar(30), email)
         .input('password', sql.NVarChar(60), hashedPassword)
         .query(createUserQuery);
+        const result = con.query`SELECT id from users WHERE email = ${email}`
+        const id = result.recordset[0].id;
         await con.close();
         const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
         res.cookie('token', token);
