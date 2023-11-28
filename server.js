@@ -55,16 +55,19 @@ app.post('/login', async (req, res) => {
                 const id = admin.id;
                 const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
                 res.cookie('token', token);
-                con.close();
+                await con.close();
                 return res.json({ Status: 'Success', Role: 'admin' }); // assign admin role
             } else {
+                await con.close();
                 return res.json({ Status: 'Error', Error: 'Wrong Email or Password' });
             }
         } else {
+            await con.close();
             return res.json({ Status: 'Error', Error: 'Admin not found' });
         }
     } catch (err) {
         console.error('Error in running query:', err);
+        await con.close();
         return res.json({ Status: 'Error', Error: 'Error in running query' });
     }
 });
@@ -83,16 +86,19 @@ app.post('/customerLogin', async (req, res) => {
           const id = user.id;
           const token = jwt.sign({ role: "admin", id }, "jwt-secret-key", { expiresIn: '1d' });
           res.cookie('token', token);
-          con.close()
+          await con.close()
           return res.json({ Status: "Success", Role: 'user' });
         } else {
+            await con.close();
           return res.json({ Status: "Error", Error: "Wrong Email or Password" });
         }
       } else {
+        await con.close();
         return res.json({ Status: "Error", Error: "User not found" });
       }
     } catch (err) {
       console.error("Error in running query:", err);
+      await con.close();
       return res.json({ Status: "Error", Error: "Error in running query" });
     }
   });
@@ -110,10 +116,11 @@ app.post('/customerLogin', async (req, res) => {
     Left Outer JOIN Service ON UserServices.ServiceID = Service.ServiceID
     GROUP BY ID, name, email, address, state, postal_code, account_last_payment_date, device_payment_plan, credit_card, credit_card_type`
         const result = await con.request().query(query);
-        con.close()
+        await con.close()
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
         console.error('Error fetching customer data from the database:', err);
+        await con.close();
         return res.json({ Error: 'Get customer error in SQL' });
     }
 });
@@ -127,13 +134,14 @@ app.get('/get/:id', async (req, res) => {
         const services = await con.query`SELECT ServiceType FROM UserServices join Service on UserServices.ServiceID = Service.ServiceID WHERE UserID = ${id}`;
 
         if (result.recordset.length === 0) {
-            con.close()
+            await con.close()
             return res.json({ Status: 'Data not found', Result: [], Services: [] });
         }
-        con.close()
+        await con.close()
         return res.json({ Status: 'Success', Result: result.recordset, Services: services.recordset });
     } catch (err) {
         console.error('Database error:', err);
+        await con.close();
         return res.json({ Status: 'Error', Error: 'Get customer error in sql' });
     }
 });
@@ -209,10 +217,11 @@ app.put('/update/:id', async (req, res) => {
                     `);
             });
         }
-        const con = await connectToDatabase();
+        await con.close();
         return res.json({ Status: "Success" });
     } catch (err) {
         console.error("Error updating customer:", err);
+        await con.close();
         return res.json({ Status: "Error", Error: "Error updating customer" });
     }
 });
@@ -260,10 +269,11 @@ app.get('/editHistory', async (req, res) => {
     try {
         const con = await connectToDatabase();
         const result = await con.query`SELECT edited_table, edited_field, new_value, timestamp FROM edit_history`;
-        con.close();
+        await con.close();
         return res.json({ Status: 'Success', EditHistory: result.recordset });
     } catch (err) {
         console.error('Error fetching edit history:', err);
+        await con.close();
         return res.status(500).json({ Error: 'Error fetching edit history' });
     }
 });
@@ -274,10 +284,11 @@ app.delete('/delete/:id', async (req, res) => {
         const con = await connectToDatabase();
         await con.query`DELETE FROM UserServices WHERE UserID = ${id}`
         const result = await con.query`DELETE FROM combined_data WHERE ID = ${id}`;
-        con.close();
+        await con.close();
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running delete query:', err);
+        await con.close();
         return res.json({ Status: 'Error', Error: 'Error in running delete query' });
     }
 });
@@ -308,22 +319,25 @@ app.get('/adminCount', async (req, res) => {
         const con = await connectToDatabase();
         const query = 'SELECT COUNT(id) AS admin FROM admin';
         const result = await con.query(query);
-        con.close();
+        await con.close();
         res.json(result.recordset[0]);
     } catch (err) {
         console.error('Error running query:', err);
+        await con.close();
         res.status(500).json({ Error: 'Error in running query' });
     }
 });
 
 app.get('/customerCount', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const query = "Select COUNT(ID) as users from combined_data";
         const result = await con.query(query);
-
+        await con.close();
         res.json(result.recordset[0]);
     } catch (err) {
         console.error('Error running query:', err);
+        await con.close();
         res.status(500).json({ Error: 'Error in running query' });
     }
 });
@@ -382,10 +396,11 @@ app.post('/add', async (req, res) => {
                     }
                 })
             }
-            con.close();
+            await con.close();
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running query:', err);
+        await con.close()
         return res.json({ Status: 'Error', Error: 'Error in running query' });
     }
 });
@@ -404,18 +419,19 @@ app.post('/advanceLogin', async(req, res) => {
                 const id = user.id;
                 const token = jwt.sign({role: "admin", id }, "jwt-secret-key", {expiresIn: '1d' });
                 res.cookie('token', token);
-                con.close();
+                await con.close();
                 return res.json({Status: "Success", Role: 'advanceUser' });
             } else {
-                con.close();
+                await con.close();
                 return res.json({Status: "Error", Error: "Wrong Email or Password" });
             }
         } else {
-            con.close();
+            await con.close();
           return res.json({ Status: "Error", Error: "User not found" });
         }
       } catch (err) {
         console.error("Error in running query:", err);
+        await con.close()
         return res.json({ Status: "Error", Error: "Error in running query" });
       }
     });
@@ -424,10 +440,11 @@ app.post('/advanceLogin', async(req, res) => {
         try {
             const con = await connectToDatabase();
             const result = await con.request().query('SELECT id, email, role FROM users');
-            con.close()
+            await con.close()
             return res.json({ Status: "Success", Result: result.recordset });
         } catch (err) {
             console.error("Get customer error in SQL:", err);
+            await con.close()
             return res.status(500).json({ Error: "Get customer error in SQL" });
         }
     });
@@ -436,10 +453,11 @@ app.post('/advanceLogin', async(req, res) => {
         try {
             const con = await connectToDatabase();
             const result = await con.request().query('SELECT id, email, role FROM advance_user');
-            con.close();
+            await con.close();
             return res.json({ Status: "Success", Result: result.recordset });
         } catch (err) {
             console.error("Get advance user error in SQL:", err);
+            await con.close()
             return res.status(500).json({ Error: "Get advance user error in SQL" });
         }
     });
@@ -453,6 +471,7 @@ app.post('/demoteUser/:id', async (req, res) => {
 
         
         if (checkAdvanceUserResult.recordset.length === 0) {
+            await con.close()
             return res.json({ Error: "Advance User not found." });
         }
 
@@ -470,10 +489,11 @@ app.post('/demoteUser/:id', async (req, res) => {
         await con.request()
         .input('id', sql.Int, id)
         .query(deleteAdvanceUserQuery);
-        con.close();
+        await con.close();
         return res.json({ Status: "Success", Message: "User demoted successfully." });
     } catch (err) {
         console.error("Demotion failed:", err);
+        await con.close()
         return res.status(500).json({ Error: "Demotion failed." });
     }
 });
@@ -490,7 +510,7 @@ app.post('/promoteUser/:id', async (req, res) => {
         .query(checkRegularUserQuery);
 
         if (checkRegularUserResult.recordset.length === 0) {
-            con.close();
+            await con.close();
             return res.json({ Error: "User not found or not a regular user." });
         }
 
@@ -507,10 +527,11 @@ app.post('/promoteUser/:id', async (req, res) => {
         await con.request()
         .input('id', sql.Int, id)
         .query(deleteRegularUserQuery);
-        con.close();
+        await con.close();
         return res.json({ Status: "Success", Message: "User promoted to advance user successfully." });
     } catch (err) {
         console.error("Promotion failed:", err);
+        await con.close()
         return res.status(500).json({ Error: "Promotion failed." });
     }
 });
@@ -526,10 +547,11 @@ app.post('/createUser', async (req, res) => {
         .input('email', sql.VarChar(30), email)
         .input('password', sql.NVarChar(60), hashedPassword)
         .query(createUserQuery);
-        con.close();
+        await con.close();
         res.json({ Status: 'Success', Message: 'User created successfully' });
     } catch (err) {
         console.error('Error creating user:', err);
+        await con.close()
         res.status(500).json({ Status: 'Error', Error: 'Error creating user' });
     }
 });
@@ -656,10 +678,11 @@ app.post('/filteredSearch', async (req, res) => {
         .input('Wireless', Wireless)
         .query(query);
 
-        con.close();
+        await con.close();
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
         console.error('Error Sorting:', err);
+        await con.close()
         res.status(500).json({ Status: 'Error', Error: 'Error Sorting' });
     }
 })
@@ -669,9 +692,10 @@ app.post('/upload-csv', upload.array('files'), async (req, res) => {
         const con = await connectToDatabase();
         console.log('CSV upload request received:', req.files);
         processCSVUpload(req, res, con);
-        con.close();
+        await con.close();
     } catch (error) {
         console.error('Error during CSV upload:', error);
+        await con.close()
         res.status(500).send('Internal Server Error');
     }
 });
