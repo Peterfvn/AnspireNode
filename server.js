@@ -28,17 +28,17 @@ const config = {
       enableArithAbort: true
     },
 };
-const con = new sql.ConnectionPool(config);
 
 async function connectToDatabase() {
     try {
-      const con = await sql.connect({config});
+      const con = await sql.connect(config);
       console.log('Connected to the database');
       return con;
     } catch (error) {
       console.error('Error connecting to the database:', error);
     }
   }
+
 
 app.post('/login', async (req, res) => {
     const email = req.body.email;
