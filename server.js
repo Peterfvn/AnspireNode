@@ -85,6 +85,7 @@ app.post('/customerLogin', async (req, res) => {
         if (await bcrypt.compare(req.body.password, user.password)) {
           const id = user.id;
           const token = jwt.sign({ role: "admin", id }, "jwt-secret-key", { expiresIn: '1d' }, { cookie: { sameSite: 'None' } });
+          console.log("sameSite: 'None'")
           console.log("token: ", token)
           res.cookie('token', token);
           await con.close()
