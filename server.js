@@ -9,7 +9,7 @@ dotenv.config()
 
 const app = express();
 app.use(cors({
-    origin: ["https://anspire.onrender.com", "http://localhost:5173"],
+    origin: ["https://anspire.onrender.com", "http://localhost:5173", "https://anspiredb.onrender.com"],
     methods: ["POST", "GET", "PUT", "DELETE"],
     credentials: true,
     optionsSuccessStatus: 204
