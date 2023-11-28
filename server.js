@@ -85,6 +85,7 @@ app.post('/customerLogin', async (req, res) => {
         if (await bcrypt.compare(req.body.password, user.password)) {
           const id = user.id;
           const token = jwt.sign({ role: "admin", id }, "jwt-secret-key", { expiresIn: '1d' });
+          console.log("token: ", token)
           res.cookie('token', token);
           await con.close()
           return res.json({ Status: "Success", Role: 'user' });
@@ -295,6 +296,7 @@ app.delete('/delete/:id', async (req, res) => {
 
 const verifyUser = (req, res, next) => {
     const token = req.cookies.token;
+    console.log(token)
     if (!token) {
         console.log("You are not Authenticated")
         return res.json({ Error: "You are no Authenticated" });
