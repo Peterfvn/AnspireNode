@@ -296,6 +296,7 @@ app.delete('/delete/:id', async (req, res) => {
 const verifyUser = (req, res, next) => {
     const token = req.cookies.token;
     if (!token) {
+        console.log("You are not Authenticated")
         return res.json({ Error: "You are no Authenticated" });
     } else {
         jwt.verify(token, "jwt-secret-key", (err, decoded) => {
@@ -543,19 +544,15 @@ app.post('/promoteUser/:id', async (req, res) => {
 app.post('/createUser', async (req, res) => {
     const email = req.body.email;
     const password = req.body.password;
+    const con = await connectToDatabase();
     try {
-        const con = await connectToDatabase();
         const hashedPassword = await bcrypt.hash(password, 10);
         const createUserQuery = "INSERT INTO users (email, role, password) VALUES (@email, 'user', @password)";
         await con.request()
         .input('email', sql.VarChar(30), email)
         .input('password', sql.NVarChar(60), hashedPassword)
         .query(createUserQuery);
-        const result = con.query`SELECT id from users WHERE email = ${email}`
-        const id = result.recordset[0].id;
         await con.close();
-        const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
-        res.cookie('token', token);
         res.json({ Status: 'Success', Message: 'User created successfully', Role: 'user' });
     } catch (err) {
         console.error('Error creating user:', err);
@@ -564,7 +561,7 @@ app.post('/createUser', async (req, res) => {
     }
 });
 
-// COME BACK TO THIS WIP
+
 app.post('/filteredSearch', async (req, res) => {
     let buildCondition = '';
     let {
