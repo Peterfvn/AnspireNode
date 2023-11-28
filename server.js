@@ -18,19 +18,23 @@ app.use(cookieParser());
 app.use(express.json());
 
 import sql from 'mssql'
+const config = {
+    server: process.env.DB_HOST,
+    database: process.env.DB_NAME,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    options: {
+      encrypt: true,
+      enableArithAbort: true
+    },
+};
+const con = new sql.ConnectionPool(config);
+
 async function connectToDatabase() {
     try {
-      await sql.connect({
-        server: process.env.DB_HOST,
-        database: process.env.DB_NAME,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        options: {
-          encrypt: true,
-          enableArithAbort: true
-        }
-      });
+      const con = await sql.connect({config});
       console.log('Connected to the database');
+      return con;
     } catch (error) {
       console.error('Error connecting to the database:', error);
     }
