@@ -299,7 +299,11 @@ const verifyUser = (req, res, next) => {
         return res.json({ Error: "You are no Authenticated" });
     } else {
         jwt.verify(token, "jwt-secret-key", (err, decoded) => {
-            if (err) return res.json({ Error: "Token wrong" });
+            if (err) {
+                console.log("Token wrong")
+                return res.json({ Error: "Token wrong" });
+            }
+            console.log("Token valid")
             req.role = decoded.role;
             req.id = decoded.id;
             next();
