@@ -548,7 +548,9 @@ app.post('/createUser', async (req, res) => {
         .input('password', sql.NVarChar(60), hashedPassword)
         .query(createUserQuery);
         await con.close();
-        res.json({ Status: 'Success', Message: 'User created successfully' });
+        const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
+        res.cookie('token', token);
+        res.json({ Status: 'Success', Message: 'User created successfully', Role: 'user' });
     } catch (err) {
         console.error('Error creating user:', err);
         await con.close()
