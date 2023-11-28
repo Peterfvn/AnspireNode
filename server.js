@@ -54,7 +54,7 @@ app.post('/login', async (req, res) => {
             if (passwordMatch) {
                 const id = admin.id;
                 const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
-                res.cookie('token', token);
+                res.cookie('token', token, { httpOnly: true, sameSite: 'None', secure: true });
                 await con.close();
                 return res.json({ Status: 'Success', Role: 'admin' }); // assign admin role
             } else {
@@ -426,7 +426,7 @@ app.post('/advanceLogin', async(req, res) => {
             if(await bcrypt.compare(req.body.password, user.password)) {
                 const id = user.id;
                 const token = jwt.sign({role: "admin", id }, "jwt-secret-key", {expiresIn: '1d' });
-                res.cookie('token', token);
+                res.cookie('token', token, { httpOnly: true, sameSite: 'None', secure: true });
                 await con.close();
                 return res.json({Status: "Success", Role: 'advanceUser' });
             } else {
