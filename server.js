@@ -4,6 +4,8 @@ import cookieParser from 'cookie-parser'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { upload, processCSVUpload } from './processCSVUpload.js'
+import dotenv from 'dotenv'
+dotenv.config()
 
 const app = express();
 app.use(cors({
@@ -16,14 +18,13 @@ app.use(cookieParser());
 app.use(express.json());
 
 import sql from 'mssql'
-let con;
 async function connectToDatabase() {
     try {
-      con = await sql.connect({
-        server: 'anspire.database.windows.net',
-        database: 'anspireDB',
-        user: 'group4',
-        password: 'olemi$$2023',
+      await sql.connect({
+        server: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
         options: {
           encrypt: true,
           enableArithAbort: true
@@ -34,13 +35,13 @@ async function connectToDatabase() {
       console.error('Error connecting to the database:', error);
     }
   }
-await connectToDatabase(); // Make a global connection with con as the connection variable
 
 app.post('/login', async (req, res) => {
     const email = req.body.email;
     const password = req.body.password;
 
     try {
+        const con = await connectToDatabase();
         const result = await con.query`SELECT * FROM admin WHERE email = ${email}`;
         const admin = result.recordset[0];
 
@@ -50,6 +51,7 @@ app.post('/login', async (req, res) => {
                 const id = admin.id;
                 const token = jwt.sign({ role: 'admin', id }, 'jwt-secret-key', { expiresIn: '1d' });
                 res.cookie('token', token);
+                con.close();
                 return res.json({ Status: 'Success', Role: 'admin' }); // assign admin role
             } else {
                 return res.json({ Status: 'Error', Error: 'Wrong Email or Password' });
@@ -65,6 +67,7 @@ app.post('/login', async (req, res) => {
 
 app.post('/customerLogin', async (req, res) => {
     try {
+      const con = await connectToDatabase();
       const query = `SELECT id, email, password FROM users WHERE email = @email`;
       const request = con.request().input('email', sql.VarChar, req.body.email);
       const result = await request.query(query);
@@ -76,6 +79,7 @@ app.post('/customerLogin', async (req, res) => {
           const id = user.id;
           const token = jwt.sign({ role: "admin", id }, "jwt-secret-key", { expiresIn: '1d' });
           res.cookie('token', token);
+          con.close()
           return res.json({ Status: "Success", Role: 'user' });
         } else {
           return res.json({ Status: "Error", Error: "Wrong Email or Password" });
@@ -91,6 +95,7 @@ app.post('/customerLogin', async (req, res) => {
 
   app.get('/getCustomer', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const query = `SELECT ID, name, email, address, state, postal_code, account_last_payment_date, device_payment_plan, credit_card, credit_card_type,
         STUFF((
             SELECT ', ' + CAST(ServiceType AS VARCHAR(MAX)) FROM UserServices us
@@ -101,6 +106,7 @@ app.post('/customerLogin', async (req, res) => {
     Left Outer JOIN Service ON UserServices.ServiceID = Service.ServiceID
     GROUP BY ID, name, email, address, state, postal_code, account_last_payment_date, device_payment_plan, credit_card, credit_card_type`
         const result = await con.request().query(query);
+        con.close()
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
         console.error('Error fetching customer data from the database:', err);
@@ -112,13 +118,15 @@ app.get('/get/:id', async (req, res) => {
     const id = req.params.id;
 
     try {
+        const con = await connectToDatabase();
         const result = await con.query`SELECT * FROM combined_data WHERE ID = ${id}`;
         const services = await con.query`SELECT ServiceType FROM UserServices join Service on UserServices.ServiceID = Service.ServiceID WHERE UserID = ${id}`;
 
         if (result.recordset.length === 0) {
+            con.close()
             return res.json({ Status: 'Data not found', Result: [], Services: [] });
         }
-
+        con.close()
         return res.json({ Status: 'Success', Result: result.recordset, Services: services.recordset });
     } catch (err) {
         console.error('Database error:', err);
@@ -132,6 +140,7 @@ app.put('/update/:id', async (req, res) => {
 
 
     const services = req.body.Services
+    const con = await connectToDatabase();
 
     await con.query`DELETE FROM UserServices WHERE UserID = ${id}` // Delete all their services and just re-add them
     if(services.length > 0) {
@@ -196,7 +205,7 @@ app.put('/update/:id', async (req, res) => {
                     `);
             });
         }
-
+        const con = await connectToDatabase();
         return res.json({ Status: "Success" });
     } catch (err) {
         console.error("Error updating customer:", err);
@@ -245,8 +254,9 @@ function getEditHistory(oldData, updatedData, timestamp) {
 
 app.get('/editHistory', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const result = await con.query`SELECT edited_table, edited_field, new_value, timestamp FROM edit_history`;
-
+        con.close();
         return res.json({ Status: 'Success', EditHistory: result.recordset });
     } catch (err) {
         console.error('Error fetching edit history:', err);
@@ -257,8 +267,10 @@ app.get('/editHistory', async (req, res) => {
 app.delete('/delete/:id', async (req, res) => {
     const id = req.params.id;
     try {
+        const con = await connectToDatabase();
         await con.query`DELETE FROM UserServices WHERE UserID = ${id}`
         const result = await con.query`DELETE FROM combined_data WHERE ID = ${id}`;
+        con.close();
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running delete query:', err);
@@ -289,9 +301,10 @@ app.get('/userDashboard', verifyUser, (req, res) => {
 
 app.get('/adminCount', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const query = 'SELECT COUNT(id) AS admin FROM admin';
         const result = await con.query(query);
-
+        con.close();
         res.json(result.recordset[0]);
     } catch (err) {
         console.error('Error running query:', err);
@@ -331,6 +344,7 @@ app.post('/add', async (req, res) => {
     } = req.body;
 
     try {
+        const con = await connectToDatabase();
         const result = await con.query`
             INSERT INTO combined_data (
                 ID,
@@ -364,6 +378,7 @@ app.post('/add', async (req, res) => {
                     }
                 })
             }
+            con.close();
         return res.json({ Status: 'Success' });
     } catch (err) {
         console.error('Error in running query:', err);
@@ -373,6 +388,7 @@ app.post('/add', async (req, res) => {
 
 app.post('/advanceLogin', async(req, res) => {
     try {
+        const con = await connectToDatabase();
         const query = `Select * FROM advance_user WHERE email = @email`;
         const request = con.request().input('email', sql.VarChar, req.body.email);
         const result = await request.query(query);
@@ -384,11 +400,14 @@ app.post('/advanceLogin', async(req, res) => {
                 const id = user.id;
                 const token = jwt.sign({role: "admin", id }, "jwt-secret-key", {expiresIn: '1d' });
                 res.cookie('token', token);
+                con.close();
                 return res.json({Status: "Success", Role: 'advanceUser' });
             } else {
+                con.close();
                 return res.json({Status: "Error", Error: "Wrong Email or Password" });
             }
         } else {
+            con.close();
           return res.json({ Status: "Error", Error: "User not found" });
         }
       } catch (err) {
@@ -399,8 +418,9 @@ app.post('/advanceLogin', async(req, res) => {
 
     app.get('/getUser', async (req, res) => {
         try {
+            const con = await connectToDatabase();
             const result = await con.request().query('SELECT id, email, role FROM users');
-            
+            con.close()
             return res.json({ Status: "Success", Result: result.recordset });
         } catch (err) {
             console.error("Get customer error in SQL:", err);
@@ -410,8 +430,9 @@ app.post('/advanceLogin', async(req, res) => {
 
     app.get('/getAdvanceUser', async (req, res) => {
         try {
+            const con = await connectToDatabase();
             const result = await con.request().query('SELECT id, email, role FROM advance_user');
-            
+            con.close();
             return res.json({ Status: "Success", Result: result.recordset });
         } catch (err) {
             console.error("Get advance user error in SQL:", err);
@@ -421,6 +442,7 @@ app.post('/advanceLogin', async(req, res) => {
 
 app.post('/demoteUser/:id', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const id = req.params.id;
         const checkAdvanceUserQuery = 'SELECT * FROM advance_user WHERE id = @id'
         const checkAdvanceUserResult = await con.request().input('id', sql.Int, id).query(checkAdvanceUserQuery);
@@ -444,7 +466,7 @@ app.post('/demoteUser/:id', async (req, res) => {
         await con.request()
         .input('id', sql.Int, id)
         .query(deleteAdvanceUserQuery);
-
+        con.close();
         return res.json({ Status: "Success", Message: "User demoted successfully." });
     } catch (err) {
         console.error("Demotion failed:", err);
@@ -454,6 +476,7 @@ app.post('/demoteUser/:id', async (req, res) => {
 
 app.post('/promoteUser/:id', async (req, res) => {
     try {
+        const con = await connectToDatabase();
         const id = req.params.id;
 
         // Get the user from the 'user' table
@@ -463,6 +486,7 @@ app.post('/promoteUser/:id', async (req, res) => {
         .query(checkRegularUserQuery);
 
         if (checkRegularUserResult.recordset.length === 0) {
+            con.close();
             return res.json({ Error: "User not found or not a regular user." });
         }
 
@@ -479,7 +503,7 @@ app.post('/promoteUser/:id', async (req, res) => {
         await con.request()
         .input('id', sql.Int, id)
         .query(deleteRegularUserQuery);
-    
+        con.close();
         return res.json({ Status: "Success", Message: "User promoted to advance user successfully." });
     } catch (err) {
         console.error("Promotion failed:", err);
@@ -491,14 +515,14 @@ app.post('/createUser', async (req, res) => {
     const email = req.body.email;
     const password = req.body.password;
     try {
-
+        const con = await connectToDatabase();
         const hashedPassword = await bcrypt.hash(password, 10);
         const createUserQuery = "INSERT INTO users (email, role, password) VALUES (@email, 'user', @password)";
         const result = await con.request()
         .input('email', sql.VarChar(30), email)
         .input('password', sql.NVarChar(60), hashedPassword)
         .query(createUserQuery);
-
+        con.close();
         res.json({ Status: 'Success', Message: 'User created successfully' });
     } catch (err) {
         console.error('Error creating user:', err);
@@ -523,6 +547,7 @@ app.post('/filteredSearch', async (req, res) => {
         ServiceTypes
     } = req.body;
     try {
+        const con = await connectToDatabase();
         ID = '%' + ID + '%'; // Create one for each parameter so that it searches for contains, not exact match.
         name = '%' + name + '%';
         email = '%' + email + '%';
@@ -626,6 +651,8 @@ app.post('/filteredSearch', async (req, res) => {
         .input('Fiber', Fiber)
         .input('Wireless', Wireless)
         .query(query);
+
+        con.close();
         return res.json({ Status: 'Success', Result: result.recordset });
     } catch (err) {
         console.error('Error Sorting:', err);
@@ -633,10 +660,12 @@ app.post('/filteredSearch', async (req, res) => {
     }
 })
 
-app.post('/upload-csv', upload.array('files'), (req, res) => {
+app.post('/upload-csv', upload.array('files'), async (req, res) => {
     try {
+        const con = await connectToDatabase();
         console.log('CSV upload request received:', req.files);
         processCSVUpload(req, res, con);
+        con.close();
     } catch (error) {
         console.error('Error during CSV upload:', error);
         res.status(500).send('Internal Server Error');
